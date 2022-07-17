@@ -2,12 +2,13 @@ package discover
 
 import (
 	"fmt"
+	"log"
+	"strconv"
+
 	"github.com/go-kit/kit/sd/consul"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/api/watch"
 	"github.com/longjoy/micro-go-book/ch13-seckill/pkg/common"
-	"log"
-	"strconv"
 )
 
 func New(consulHost string, consulPort string) *DiscoveryClientInstance {
@@ -45,6 +46,7 @@ func (consulClient *DiscoveryClientInstance) Register(instanceId, svcHost, healt
 		Weights: &api.AgentWeights{
 			Passing: weight,
 		},
+		// 健康检查？
 		Check: &api.AgentServiceCheck{
 			DeregisterCriticalServiceAfter: "30s",
 			HTTP:                           "http://" + svcHost + ":" + strconv.Itoa(port) + healthCheckUrl,
@@ -67,13 +69,14 @@ func (consulClient *DiscoveryClientInstance) Register(instanceId, svcHost, healt
 	return true
 }
 
+// 服务注销方法
 func (consulClient *DiscoveryClientInstance) DeRegister(instanceId string, logger *log.Logger) bool {
 
 	// 构建包含服务实例 ID 的元数据结构体
 	serviceRegistration := &api.AgentServiceRegistration{
 		ID: instanceId,
 	}
-	// 发送服务注销请求
+	// 发送服务注销请求（调用Consul.client的Deregister）
 	err := consulClient.client.Deregister(serviceRegistration)
 
 	if err != nil {
@@ -89,12 +92,13 @@ func (consulClient *DiscoveryClientInstance) DeRegister(instanceId string, logge
 	return true
 }
 
+// 根据服务名称获取服务注册与发现中心的服务实例列表
 func (consulClient *DiscoveryClientInstance) DiscoverServices(serviceName string, logger *log.Logger) []*common.ServiceInstance {
 
 	//  该服务已监控并缓存
 	instanceList, ok := consulClient.instancesMap.Load(serviceName)
 	if ok {
-		return instanceList.([]*common.ServiceInstance)
+		return instanceList.([]*common.ServiceInstance) // 断言
 	}
 	// 申请锁
 	consulClient.mutex.Lock()
@@ -105,11 +109,12 @@ func (consulClient *DiscoveryClientInstance) DiscoverServices(serviceName string
 		return instanceList.([]*common.ServiceInstance)
 	} else {
 		// 注册监控
+		// 启动协程来对Consul上的服务状态进行监控
 		go func() {
 			params := make(map[string]interface{})
 			params["type"] = "service"
 			params["service"] = serviceName
-			plan, _ := watch.Parse(params)
+			plan, _ := watch.Parse(params) // 监控
 			plan.Handler = func(u uint64, i interface{}) {
 				if i == nil {
 					return
